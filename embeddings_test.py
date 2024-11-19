@@ -5,8 +5,10 @@ import configparser
 
 
 # PUBLIC SITE 
-openai_api_key = "" # FILL THIS IN 
-openai_api_base = "https://data.ai.uky.edu/llm-factory/openai/v1"
+config = configparser.ConfigParser()
+config.read('config.ini')
+openai_api_base = config.get('API', 'openai_api_base')
+openai_api_key = config.get('API', 'openai_api_key')
 
 client = AsyncOpenAI(
     api_key=openai_api_key,
