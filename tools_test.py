@@ -2,6 +2,7 @@ from openai import OpenAI
 from openai import AsyncOpenAI
 import asyncio
 import configparser
+import json
 
 # PUBLIC SITE 
 config = configparser.ConfigParser()
@@ -134,11 +135,10 @@ tool_descriptions = [
 
 def handle_function_call(function_call):
     tool_name = function_call.name
-    arguments = function_call.arguments
-    
+    arguments = json.loads(function_call.arguments)
     try:
         called_tool = tools[tool_name]
-        called_tool.execute(**arguments)
+        return called_tool.execute(**arguments)
     except Exception as e:
         print(e)
 
@@ -170,8 +170,8 @@ async def test():
         temperature = 0.7,
         tools = tool_descriptions
     )
-    print('Completion result:')
-    print(completion)
+    # print('Completion result:')
+    # print(completion)
 
     # Handle the assistant's response
     assistant_response = completion.choices[0].message
@@ -183,14 +183,16 @@ async def test():
             result = handle_function_call(tool_call.function)
 
             # Send the result back to the assistant
-            messages.append(assistant_response)
             messages.append({
-                'role': 'assistant',
+                'role': 'tool',
                 'content': str(result)
             })
 
-            print('Assistant\'s response with result:')
-            print(messages[-1]['content'])
+            # print('Assistant\'s response with result:')
+            # print(messages[-1]['content'])
+
+            for message in messages:
+                print(message)
 
             completion = await client.chat.completions.create(
                 model=adapter_id,
@@ -199,7 +201,7 @@ async def test():
                 temperature = 0.7,
                 # tools = tool_descriptions
             )
-            print('Completion result:')
+            # print('Completion result:')
             print(completion.choices[0].message)
     else:
         print('Assistant\'s response:')
