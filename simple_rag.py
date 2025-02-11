@@ -3,6 +3,7 @@ import os
 import numpy as np
 import faiss
 from openai import OpenAI
+import concurrent.futures
 import configparser
 
 # PUBLIC SITE 
@@ -16,8 +17,8 @@ class RAGDatabase:
     def __init__(
         self, 
         client, 
-        db_file='rag_db.json', 
-        faiss_index_file='rag.index',
+        db_file=None, 
+        faiss_index_file=None,
         dimension=768
     ):
         self.client = client
@@ -26,11 +27,12 @@ class RAGDatabase:
         self.documents = []
         self.dimension = dimension # OpenAI dimension is 1536, LLM Factory is currently 768
         self.index = faiss.IndexHNSWFlat(self.dimension, 32)  # Faster FAISS search
-        self.is_modified = False
+        self.is_db_modified = False
+        self.is_index_modified = False
         
-        if os.path.exists(db_file):
+        if self.db_file and os.path.exists(db_file):
             self.load_database()
-        if os.path.exists(faiss_index_file):
+        if self.faiss_index_file and os.path.exists(faiss_index_file):
             self.load_faiss_index()
 
     def embed_text(self, texts, model=''):
@@ -45,39 +47,73 @@ class RAGDatabase:
         return np.array([res.embedding for res in response.data], dtype=np.float32)
 
     def add_document(self, doc):
-        '''Add a document and its embedding to the database.'''
-        embedding = self.embed_text([doc])  
-        self.index.add(embedding) 
-        self.documents.append(doc)
-        self.is_modified = True  # Flag as modified
-        self.save_database()
-        self.save_faiss_index()
+        '''Add a document or a list of documents and their embeddings to the database.'''
+
+        # Ensure doc is a list
+        if isinstance(doc, str):
+            doc = [doc]  # Convert single document to a list
+
+        # Parallel embedding generation
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            embeddings = list(executor.map(self.embed_text, [[d] for d in doc]))  # Embed each document individually
+
+        # Flatten embeddings if `embed_text` returns a list for each input
+        embeddings = np.array([e[0] for e in embeddings], dtype=np.float32)  # Ensure dtype is float32 for FAISS
+
+        # Add to FAISS index
+        self.index.add(embeddings)  
+
+        # Store documents
+        self.documents.extend(doc)  
+
+        # Flag modifications
+        self.is_db_modified = True
+        self.is_index_modified = True
+
+        # Save updates if file paths are set
+        if self.db_file:
+            self.save_database()
+        if self.faiss_index_file:
+            self.save_faiss_index()
 
     def save_database(self):
         '''Save documents to a JSON file.'''
-        if not self.is_modified:
+        if not self.db_file:
+            print('Document database file is not defined')
+            return
+        if not self.is_db_modified:
             return  
 
         with open(self.db_file, 'w') as f:
             json.dump({'documents': self.documents}, f)
 
-        self.is_modified = False  
+        self.is_db_modified = False  
 
     def load_database(self):
         '''Load documents from a JSON file.'''
+        if not self.db_file:
+            print('Document database file is not defined')
+            return
+        
         with open(self.db_file, 'r') as f:
             self.documents = json.load(f)['documents']
 
     def save_faiss_index(self):
         '''Save FAISS index to a file if modifications made.'''
-        if not self.is_modified:
+        if not self.faiss_index_file:
+            print('Index file is not defined')
+            return
+        if not self.is_index_modified:
             return  
 
         faiss.write_index(self.index, self.faiss_index_file)
-        self.is_modified = False  
+        self.is_index_modified = False  
 
     def load_faiss_index(self):
         '''Load FAISS index safely, rebuild if corrupted.'''
+        if not self.faiss_index_file:
+            print('Index file is not defined')
+            return
         if os.path.exists(self.faiss_index_file):
             self.index = faiss.read_index(self.faiss_index_file)
             if self.index.ntotal != len(self.documents):  
@@ -100,29 +136,29 @@ class RAGDatabase:
     def search(self, query, top_k=3):
         '''Retrieve the most relevant documents using FAISS.'''
         query_embedding = self.embed_text([query]).reshape(1, -1)
-        distances, indices = self.index.search(query_embedding, top_k)  
+        distances, indices = self.index.search(query_embedding, top_k)
         return [self.documents[i] for i in indices[0] if i < len(self.documents)]
 
     def generate_response(self, query, top_k=3, prompt_template=None):
-    '''Retrieve relevant documents and generate a response using OpenAI.'''
-    relevant_docs = self.search(query, top_k)
-    context = '\n'.join(relevant_docs)
+        '''Retrieve relevant documents and generate a response using OpenAI.'''
+        relevant_docs = self.search(query, top_k)
+        context = '\n'.join(relevant_docs)
 
-    if prompt_template:
-        prompt = prompt_template.format(context=context, query=query)
-    else:
-        prompt = f'Using the following information, answer the question:\n{context}\n\nQuestion: {query}\nAnswer:'
+        if prompt_template:
+            prompt = prompt_template.format(context=context, query=query)
+        else:
+            prompt = f'Using the following information, answer the question:\n{context}\n\nQuestion: {query}\nAnswer:'
 
-    response = self.client.chat.completions.create(
-        model='',
-        messages=[{'role': 'system', 'content': 'You are a helpful AI.'},
-                  {'role': 'user', 'content': prompt}]
-    )
+        response = self.client.chat.completions.create(
+            model='',
+            messages=[{'role': 'system', 'content': 'You are a helpful AI.'},
+                      {'role': 'user', 'content': prompt}]
+        )
 
-    if response.choices and response.choices[0].message:
-        return response.choices[0].message.content
-    else:
-        return "Error: No response generated."
+        if response.choices and response.choices[0].message:
+            return response.choices[0].message.content
+        else:
+            return "Error: No response generated."
 
 
 # Example Usage

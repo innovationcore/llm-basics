@@ -176,6 +176,7 @@ async def test():
     # Handle the assistant's response
     assistant_response = completion.choices[0].message
     if assistant_response.tool_calls:
+        print(assistant_response)
         tool_calls = assistant_response.tool_calls
         for tool_call in tool_calls:
 
@@ -205,7 +206,7 @@ async def test():
             print(completion.choices[0].message)
     else:
         print('Assistant\'s response:')
-        print(assistant_response['content'])
+        print(assistant_response)
 
 if __name__ == '__main__':
     loop = asyncio.new_event_loop()
