@@ -46,7 +46,7 @@ class RAGDatabase:
         )
         return np.array([res.embedding for res in response.data], dtype=np.float32)
 
-    def add_document(self, doc):
+    def add_documents(self, doc):
         '''Add a document or a list of documents and their embeddings to the database.'''
 
         # Ensure doc is a list
