@@ -6,7 +6,7 @@ from openai import OpenAI
 import concurrent.futures
 import configparser
 
-# PUBLIC SITE 
+# Load configuration from config.ini file
 config = configparser.ConfigParser()
 config.read('config.ini')
 openai_api_base = config.get('API', 'openai_api_base')
@@ -14,6 +14,10 @@ openai_api_key = config.get('API', 'openai_api_key')
 
 
 class RAGDatabase:
+    """
+    A simple Retrieval-Augmented Generation database that stores documents and their embeddings
+    for retrieval when answering questions.
+    """
     def __init__(
         self, 
         client, 
@@ -22,14 +26,15 @@ class RAGDatabase:
         dimension=768
     ):
         self.client = client
-        self.db_file = db_file
-        self.faiss_index_file = faiss_index_file
+        self.db_file = db_file  # File to store document texts
+        self.faiss_index_file = faiss_index_file  # File to store vector index
         self.documents = []
-        self.dimension = dimension # OpenAI dimension is 1536, LLM Factory is currently 768
+        self.dimension = dimension  # OpenAI dimension is 1536, LLM Factory is currently 768
         self.index = faiss.IndexHNSWFlat(self.dimension, 32)  # Faster FAISS search
         self.is_db_modified = False
         self.is_index_modified = False
         
+        # Load existing data if available
         if self.db_file and os.path.exists(db_file):
             self.load_database()
         if self.faiss_index_file and os.path.exists(faiss_index_file):
@@ -40,30 +45,31 @@ class RAGDatabase:
         if isinstance(texts, str):  
             texts = [texts]  # Ensure batch format
         
+        # Call the OpenAI-compatible embeddings endpoint
         response = self.client.embeddings.create(
             input=texts, 
             model=model
         )
         return np.array([res.embedding for res in response.data], dtype=np.float32)
 
-    def add_documents(self, doc):
+    def add_document(self, doc):
         '''Add a document or a list of documents and their embeddings to the database.'''
 
         # Ensure doc is a list
         if isinstance(doc, str):
             doc = [doc]  # Convert single document to a list
 
-        # Parallel embedding generation
+        # Generate embeddings for each document
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            embeddings = list(executor.map(self.embed_text, [[d] for d in doc]))  # Embed each document individually
+            embeddings = list(executor.map(self.embed_text, [[d] for d in doc]))
 
         # Flatten embeddings if `embed_text` returns a list for each input
-        embeddings = np.array([e[0] for e in embeddings], dtype=np.float32)  # Ensure dtype is float32 for FAISS
+        embeddings = np.array([e[0] for e in embeddings], dtype=np.float32)
 
-        # Add to FAISS index
+        # Add embeddings to vector index
         self.index.add(embeddings)  
 
-        # Store documents
+        # Store document texts
         self.documents.extend(doc)  
 
         # Flag modifications
@@ -116,6 +122,7 @@ class RAGDatabase:
             return
         if os.path.exists(self.faiss_index_file):
             self.index = faiss.read_index(self.faiss_index_file)
+            # Verify index matches document count
             if self.index.ntotal != len(self.documents):  
                 print("FAISS index does not match document count! Rebuilding index...")
                 self.rebuild_faiss_index()
@@ -135,24 +142,34 @@ class RAGDatabase:
 
     def search(self, query, top_k=3):
         '''Retrieve the most relevant documents using FAISS.'''
+        # Convert query to embedding
         query_embedding = self.embed_text([query]).reshape(1, -1)
+        
+        # Search for similar embeddings in the index
         distances, indices = self.index.search(query_embedding, top_k)
+        
+        # Return the corresponding documents
         return [self.documents[i] for i in indices[0] if i < len(self.documents)]
 
     def generate_response(self, query, top_k=3, prompt_template=None):
         '''Retrieve relevant documents and generate a response using OpenAI.'''
+        # Get relevant documents
         relevant_docs = self.search(query, top_k)
         context = '\n'.join(relevant_docs)
 
+        # Format prompt with retrieved context
         if prompt_template:
             prompt = prompt_template.format(context=context, query=query)
         else:
             prompt = f'Using the following information, answer the question:\n{context}\n\nQuestion: {query}\nAnswer:'
 
+        # Generate response from LLM
         response = self.client.chat.completions.create(
-            model='',
-            messages=[{'role': 'system', 'content': 'You are a helpful AI.'},
-                      {'role': 'user', 'content': prompt}]
+            model='',  # Add your LLM Factory adapter ID here
+            messages=[
+                {'role': 'system', 'content': 'You are a helpful AI.'},
+                {'role': 'user', 'content': prompt}
+            ]
         )
 
         if response.choices and response.choices[0].message:
@@ -163,25 +180,23 @@ class RAGDatabase:
 
 # Example Usage
 if __name__ == '__main__':
+    # Initialize OpenAI client
     client = OpenAI(
         api_key=openai_api_key,
         base_url=openai_api_base,
     )
 
-    # Create the RAG DB
-    db = RAGDatabase(client)
-    # Add documents to the DB
+    # Create the RAG database
+    db = RAGDatabase(client, db_file="rag_docs.json", faiss_index_file="rag_index.faiss")
+    
+    # Add some sample documents
     db.add_document('The capital of France is Paris.')
     db.add_document('The largest planet in our solar system is Jupiter.')
 
-    # Save database to local file and to FAISS index file
-    # FAISS index is used to quickly lookup the vector relations
-    # Found indexes are then matched with documents in database
-    db.save_database()
-    db.save_faiss_index()
-
+    # Define a custom prompt template
     custom_prompt = "Based on this information:\n{context}\nProvide an answer to:\n{query}"
     
+    # Test the RAG system with a query
     query = 'What is the capital of France?'
     print('Search results:', db.search(query))
     print('Generated response:', db.generate_response(query, prompt_template=custom_prompt))

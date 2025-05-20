@@ -1,22 +1,18 @@
 from openai import OpenAI
-from openai import AsyncOpenAI
-import asyncio
 import configparser
 import json
 
-# PUBLIC SITE 
+# Load configuration from config.ini file
 config = configparser.ConfigParser()
 config.read('config.ini')
 openai_api_base = config.get('API', 'openai_api_base')
 openai_api_key = config.get('API', 'openai_api_key')
-adapter_id = '' # FILL THIS IN
 
-client = AsyncOpenAI(
+# Initialize OpenAI client
+client = OpenAI(
     api_key=openai_api_key,
     base_url=openai_api_base,
 )
-
-
 
 class Tool:
     '''
@@ -99,18 +95,21 @@ class WeatherLookupTool(Tool):
         '''
         Mock implementation of weather lookup.
         '''
-        # Replace with actual weather API call.
+        # Replace with actual weather API call in production
         return f'The weather in {city} is sunny with a temperature of 25°C.'
 
 
-
+# Create tool instances
 calculator_tool = CalculatorTool()
 weather_lookup_tool = WeatherLookupTool()
 
+# Make tools available in a dictionary
 tools = {
     calculator_tool.name: calculator_tool,
     weather_lookup_tool.name: weather_lookup_tool
 }
+
+# Format tool descriptions for the OpenAI API
 tool_descriptions = [
     {
         'type': 'function',
@@ -134,81 +133,85 @@ tool_descriptions = [
 
 
 def handle_function_call(function_call):
+    """
+    Execute the appropriate tool based on the function call from the model
+    """
     tool_name = function_call.name
     arguments = json.loads(function_call.arguments)
+    
     try:
         called_tool = tools[tool_name]
         return called_tool.execute(**arguments)
     except Exception as e:
-        print(e)
+        print(f"Error executing tool: {e}")
+        return f"Error: {str(e)}"
 
 
-
-
-
-
-async def test():
+def test():
+    """Test tool usage with a simple math question"""
+    
+    # Set up the conversation with system and user messages
     messages = [
         {
             'role': 'system',
             'content': (
                 'You are a helpful assistant. You can use the following tools:\n' +
-                '\n'.join([f'{tool['function']['name']}: {tool['function']['description']}' for tool in tool_descriptions])
+                '\n'.join([f'{tool["function"]["name"]}: {tool["function"]["description"]}' for tool in tool_descriptions])
             )
         },
         {
             'role': 'user',
-            'content': 'What is 5 + 10?'
+            'content': 'What is 15183172 + 1495186379?'
         }
     ]
 
-    # asynchrounous completions
-    completion = await client.chat.completions.create(
-        model=adapter_id,
+    # Get initial model response with available tools
+    completion = client.chat.completions.create(
+        model='/models/functionary-small-v2.5',
         messages=messages, 
-        max_tokens = 200,
-        temperature = 0.7,
-        tools = tool_descriptions
+        max_tokens=200,
+        temperature=0.7,
+        tools=tool_descriptions  # Make tools available to the model
     )
-    # print('Completion result:')
-    # print(completion)
 
     # Handle the assistant's response
     assistant_response = completion.choices[0].message
+    
+    # Check if the model wants to use a tool
     if assistant_response.tool_calls:
-        print(assistant_response)
-        tool_calls = assistant_response.tool_calls
-        for tool_call in tool_calls:
-
+        print("Assistant wants to use tools:", assistant_response)
+        
+        # Process each tool call
+        for tool_call in assistant_response.tool_calls:
             # Execute the function
             result = handle_function_call(tool_call.function)
 
             # Send the result back to the assistant
+            messages.append(assistant_response)
             messages.append({
                 'role': 'tool',
-                'content': str(result)
+                'content': str(result),
+                'tool_call_id': tool_call.id
             })
 
-            # print('Assistant\'s response with result:')
-            # print(messages[-1]['content'])
-
+            # Print conversation history
             for message in messages:
                 print(message)
 
-            completion = await client.chat.completions.create(
-                model=adapter_id,
+            # Get final response after tool use
+            completion = client.chat.completions.create(
+                model='/models/functionary-small-v2.5',
                 messages=messages, 
-                max_tokens = 200,
-                temperature = 0.7,
-                # tools = tool_descriptions
+                max_tokens=200,
+                temperature=0.7
             )
-            # print('Completion result:')
+            
+            print("Final response:")
             print(completion.choices[0].message)
     else:
-        print('Assistant\'s response:')
+        print('Assistant\'s direct response:')
         print(assistant_response)
 
+
 if __name__ == '__main__':
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(test())
+    test()

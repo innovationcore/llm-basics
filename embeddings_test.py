@@ -1,31 +1,37 @@
 from openai import OpenAI
-from openai import AsyncOpenAI
-import asyncio
 import configparser
 
-
-# PUBLIC SITE 
+# Load configuration from config.ini file
 config = configparser.ConfigParser()
 config.read('config.ini')
 openai_api_base = config.get('API', 'openai_api_base')
 openai_api_key = config.get('API', 'openai_api_key')
 
-client = AsyncOpenAI(
+# Initialize OpenAI client
+client = OpenAI(
     api_key=openai_api_key,
     base_url=openai_api_base,
 )
 
-async def generate_embeddings(inputs, model):
-    # Call the completion endpoint to generate embeddings
-    response = await client.embeddings.create(input = inputs, model = model)
+def generate_embeddings(inputs):
+    """
+    Generate vector embeddings for the given text input
+    
+    Args:
+        inputs: Text to create embeddings for
+        model: LLM Factory adapter ID for embeddings
+        
+    Returns:
+        Vector embedding representation of the input text
+    """
+    # Call the embeddings endpoint to generate vector representations
+    response = client.embeddings.create(input=inputs, model="")
     print(response)
-    embeddings = response
-    return embeddings
+    return response
 
 
 if __name__ == '__main__':
-    input_text = "Once upon a time, there was a king who ruled over a vast kingdom." # CHANGE THIS
-    adapter_id = "" # FILL THIS IN 
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(generate_embeddings(input_text, adapter_id))
+    # Text to be converted into vector embeddings
+    input_text = "Once upon a time, there was a king who ruled over a vast kingdom."
+    
+    generate_embeddings(input_text)

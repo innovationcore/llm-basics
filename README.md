@@ -1,16 +1,20 @@
-# LLM Basics
+# LLM Factory Examples
 
-This is a simple example showing how to use OpenAI API to communicate with LLM Factory Endpoints
+This repository contains simple examples showing how to use the OpenAI API to communicate with LLM Factory Endpoints for various AI tasks.
 
-# Usage
+## Setup Instructions
 
-First, retrieve your API key from LLM Factory https://data.ai.uky.edu/llm-factory/user/getAPIKey
+1. Retrieve your API key from LLM Factory: https://llm-factory.ai.uky.edu/api-keys
+2. Copy `config.ini.example` to `config.ini` and add your API key to the `openai_api_key` field
+3. Choose the model ID you would like to use
 
-Next, copy config.ini.example into config.ini and place your API Key in the openai_api_key field
+## Example Scripts
 
-Finally, try the three example scripts. 
-* chat_completions_test.py is used to chat with the model
-* embeddings_test.py is used to create vector embeddings from text
-* transcriptions_test.py is used to generate a transcription from a short audio file
+* `chat_completions_test.py` - Chat with a language model
+* `embeddings_test.py` - Create vector embeddings from text
+* `transcriptions_test.py` - Generate transcriptions from audio files
+* `vision_test.py` - Process images with multimodal models
+* `tools_test.py` - Use tool-augmented language models
+* `simple_rag.py` - Implement a basic RAG (Retrieval-Augmented Generation) system
 
-
+Run each script after configuring to test different capabilities of the LLM Factory API.
